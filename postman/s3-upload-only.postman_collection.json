@@ -1,0 +1,108 @@
+{
+    "info": {
+      "name": "Receipt upload to S3 (step 2 only)",
+      "description": "1) In Swagger run POST /expenses/{id}/receipt/upload-url and copy the WHOLE response.\n2) Here: collection > Variables > paste it into uploadResponse (Current value) > Save.\n3) Open the request, Body tab, last row 'file' > Select Files > Send. Expect 204.\n4) Back in Swagger run POST /expenses/{id}/receipt/confirm with the same key.",
+      "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "variable": [
+      {
+        "key": "uploadResponse",
+        "value": ""
+      },
+      {
+        "key": "s3Url",
+        "value": "http://localhost:9000/expense-receipts"
+      }
+    ],
+    "item": [
+      {
+        "name": "Upload file to S3",
+        "event": [
+          {
+            "listen": "prerequest",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "// Reads the upload-url response you pasted from Swagger and fills the S3 fields.",
+                "const raw = pm.collectionVariables.get('uploadResponse');",
+                "if (!raw) { throw new Error(\"First paste the upload-url response from Swagger into the 'uploadResponse' variable\"); }",
+                "let j;",
+                "try { j = JSON.parse(raw); } catch (e) { throw new Error('uploadResponse is not valid JSON - copy the WHOLE response body from Swagger'); }",
+                "if (!j.url || !j.fields) { throw new Error('This does not look like an upload-url response (url/fields missing)'); }",
+                "pm.collectionVariables.set('s3Url', j.url);",
+                "Object.entries(j.fields).forEach(([k, v]) => pm.collectionVariables.set('s3_' + k.replace(/-/g, '_'), v));",
+                "pm.collectionVariables.set('receiptKey', j.key);"
+              ]
+            }
+          },
+          {
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "if (pm.response.code === 204) {",
+                "  console.log('Uploaded. Now run /receipt/confirm in Swagger with key:', pm.collectionVariables.get('receiptKey'));",
+                "  pm.test('Uploaded to S3 - now confirm in Swagger', () => true);",
+                "} else {",
+                "  pm.test('Upload failed - see response body', () => pm.expect(pm.response.code).to.eql(204));",
+                "}"
+              ]
+            }
+          }
+        ],
+        "request": {
+          "method": "POST",
+          "header": [],
+          "auth": {
+            "type": "noauth"
+          },
+          "url": "{{s3Url}}",
+          "body": {
+            "mode": "formdata",
+            "formdata": [
+              {
+                "key": "Content-Type",
+                "value": "{{s3_Content_Type}}",
+                "type": "text"
+              },
+              {
+                "key": "key",
+                "value": "{{s3_key}}",
+                "type": "text"
+              },
+              {
+                "key": "x-amz-algorithm",
+                "value": "{{s3_x_amz_algorithm}}",
+                "type": "text"
+              },
+              {
+                "key": "x-amz-credential",
+                "value": "{{s3_x_amz_credential}}",
+                "type": "text"
+              },
+              {
+                "key": "x-amz-date",
+                "value": "{{s3_x_amz_date}}",
+                "type": "text"
+              },
+              {
+                "key": "policy",
+                "value": "{{s3_policy}}",
+                "type": "text"
+              },
+              {
+                "key": "x-amz-signature",
+                "value": "{{s3_x_amz_signature}}",
+                "type": "text"
+              },
+              {
+                "key": "file",
+                "type": "file",
+                "src": []
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }

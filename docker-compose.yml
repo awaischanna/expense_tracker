@@ -1,0 +1,73 @@
+# Local development stack. All secrets come from your local .env (copy .env.example).
+# Local S3 = moto server (an S3 emulator, the same one the tests use). On AWS the app
+# talks to real S3 with its IAM role - only S3_ENDPOINT_URL changes.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-expenses}
+    # Host port is configurable: set POSTGRES_PORT=5433 in .env if a Windows/Mac
+    # PostgreSQL is already using 5432. Containers still talk to each other on 5432.
+    ports: ["${POSTGRES_PORT:-5432}:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 20
+
+  s3:
+    image: python:3.12-slim
+    command: sh -c "pip install --quiet 'moto[server]>=5.0' && moto_server -H 0.0.0.0 -p 9000"
+    ports: ["9000:9000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/moto-api/')"]
+      interval: 3s
+      retries: 60
+
+  api:
+    build: .
+    # 1) migrations  2) make sure the private bucket exists  3) start the API
+    command: >
+      sh -c "alembic upgrade head &&
+             python -c 'import asyncio; from app.storage import ensure_bucket; asyncio.run(ensure_bucket())' &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-expenses}
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT_URL: http://s3:9000
+      S3_PUBLIC_ENDPOINT_URL: http://localhost:9000
+      IMPORT_DIR: /data/imports
+    ports: ["8000:8000"]
+    volumes: [imports:/data/imports]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      s3: {condition: service_healthy}
+
+  worker:
+    build: .
+    command: python -m app.worker.main
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-expenses}
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT_URL: http://s3:9000
+      IMPORT_DIR: /data/imports
+    volumes: [imports:/data/imports]  # shared with the API (see README: S3 in production)
+    depends_on:
+      api: {condition: service_started}
+
+volumes:
+  pgdata:
+  imports:

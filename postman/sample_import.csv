@@ -1,0 +1,7 @@
+date,amount,currency,category,description
+2026-10-01,1500.00,PKR,Food,Groceries
+2026-10-02,12.50,USD,Food,Coffee beans
+2026-10-03,45,AED,Food,Dinner
+2026-13-01,10.00,PKR,Food,bad date - will fail
+2026-10-04,-5,PKR,Food,negative - will fail
+2026-10-05,10.00,GBP,Food,unsupported currency - will fail
